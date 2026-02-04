@@ -6,6 +6,10 @@ import { remediumFarmParser } from './remedium-farm'
 import { drmaxParser } from './drmax'
 import { springFarmaParser } from './spring-farma'
 import { biscuitPharmaParser } from './biscuit-pharma'
+import { davFarmaParser } from './dav-farma'
+import { ducfarmParser } from './ducfarm'
+import { pfarmaParser } from './pfarma'
+import { alshefaParser } from './alshefa'
 import { genericParser } from './generic'
 
 // Registru de parsere pentru fiecare retailer
@@ -19,6 +23,10 @@ const parserRegistry: Record<string, RetailerParser> = {
   'drmax.ro': drmaxParser,
   'springfarma.com': springFarmaParser,
   'biscuitpharma.ro': biscuitPharmaParser,
+  'farmaciiledav.ro': davFarmaParser,
+  'ducfarm.ro': ducfarmParser,
+  'pfarma.ro': pfarmaParser,
+  'al-shefafarm.ro': alshefaParser,
 }
 
 /**
@@ -58,6 +66,10 @@ export {
   drmaxParser,
   springFarmaParser,
   biscuitPharmaParser,
+  davFarmaParser,
+  ducfarmParser,
+  pfarmaParser,
+  alshefaParser,
   genericParser
 }
 export type { RetailerParser, ParseResult } from './types'
