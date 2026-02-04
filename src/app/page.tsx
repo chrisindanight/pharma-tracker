@@ -34,6 +34,31 @@ export default function DashboardPage() {
     end: endOfDay(new Date()),
   })
 
+  // Ordinea preferată pentru retaileri
+  const retailerOrder = [
+    'Dr Max',
+    'Farmacia Tei',
+    'HelpNet',
+    'Spring Farma',
+    'Remedium Farm',
+    'Biscuit Pharma',
+    'Farmaciile DAV',
+    'DucFarm',
+    'Al Shefa Farm',
+    'PFarma',
+  ]
+
+  const sortRetailers = (retailers: Retailer[]) => {
+    return retailers.sort((a, b) => {
+      const indexA = retailerOrder.indexOf(a.name)
+      const indexB = retailerOrder.indexOf(b.name)
+      // Dacă nu e în listă, pune la sfârșit
+      const orderA = indexA === -1 ? 999 : indexA
+      const orderB = indexB === -1 ? 999 : indexB
+      return orderA - orderB
+    })
+  }
+
   const fetchData = useCallback(async () => {
     setIsLoading(true)
 
@@ -41,7 +66,8 @@ export default function DashboardPage() {
       // Fetch retailers
       const retailersRes = await fetch('/api/retailers')
       const retailersData = await retailersRes.json()
-      setRetailers(retailersData.filter((r: Retailer & { is_active: boolean }) => r.is_active))
+      const activeRetailers = retailersData.filter((r: Retailer & { is_active: boolean }) => r.is_active)
+      setRetailers(sortRetailers(activeRetailers))
 
       // Fetch prices
       const pricesRes = await fetch(
