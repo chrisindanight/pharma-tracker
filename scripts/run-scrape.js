@@ -1,5 +1,6 @@
 /**
  * Rulează scraping-ul și salvează prețurile în baza de date
+ * Procesare paralelă per retailer (5 simultan) cu rate limiting per domeniu
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -10,6 +11,15 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY || '';
+const CONCURRENCY = 5;       // Retaileri procesați simultan
+const DELAY_NORMAL = 800;    // ms între requesturi la același retailer
+const DELAY_DRMAX = 3000;    // ms între requesturi Dr Max (proxy)
+
+function isDrmaxUrl(url) {
+  return url.includes('drmax.ro');
+}
 
 // Funcție parsare preț
 function parsePrice(text) {
@@ -88,58 +98,56 @@ function extractPrice(html, $, retailerName) {
   return { price, isInStock };
 }
 
-async function scrape() {
-  console.log('🚀 Pornesc scraping-ul...\n');
-
-  // Luăm URL-urile active
-  const { data: urls, error } = await supabase
-    .from('product_urls')
-    .select(`
-      id,
-      url,
-      product_id,
-      retailer_id,
-      products(name, ean),
-      retailers(name)
-    `)
-    .eq('is_active', true);
-
-  if (error) {
-    console.error('Eroare:', error);
-    return;
-  }
-
-  // Filtrăm Dr Max (blocat)
-  const validUrls = urls.filter(u => !u.url.includes('drmax.ro'));
-  console.log('URL-uri de procesat:', validUrls.length, '(exclus Dr Max)\n');
-
+// Procesează toate URL-urile unui singur retailer (secvențial)
+async function scrapeRetailer(retailerName, urls, progress) {
   let success = 0, failed = 0;
+  const isDrmax = isDrmaxUrl(urls[0]?.url || '');
+  const delay = isDrmax ? DELAY_DRMAX : DELAY_NORMAL;
 
-  for (const urlData of validUrls) {
-    const { url, product_id, retailer_id } = urlData;
+  for (const urlData of urls) {
+    const { url } = urlData;
     const productName = urlData.products?.name || 'Unknown';
-    const retailerName = urlData.retailers?.name || 'Unknown';
 
-    process.stdout.write(productName.substring(0, 30).padEnd(32) + ' @ ' + retailerName.padEnd(18));
+    progress.done++;
+    const pct = Math.round((progress.done / progress.total) * 100);
+    process.stdout.write(`[${pct}%] ${productName.substring(0, 30).padEnd(32)} @ ${retailerName.padEnd(18)}`);
 
     try {
+      // Dr Max fără API key → skip
+      if (isDrmax && !SCRAPER_API_KEY) {
+        console.log('⏭️  Skip (SCRAPER_API_KEY lipsește)');
+        failed++;
+        continue;
+      }
+
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      let response;
 
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'ro-RO,ro;q=0.9,en;q=0.8',
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
+      if (isDrmax) {
+        const proxyUrl = `http://api.scraperapi.com?api_key=${SCRAPER_API_KEY}&url=${encodeURIComponent(url)}&country_code=ro`;
+        const timeout = setTimeout(() => controller.abort(), 60000);
+        response = await fetch(proxyUrl, {
+          headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+      } else {
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ro-RO,ro;q=0.9,en;q=0.8',
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         console.log('❌ HTTP', response.status);
         failed++;
+        await new Promise(r => setTimeout(r, delay));
         continue;
       }
 
@@ -148,7 +156,6 @@ async function scrape() {
       const { price, isInStock } = extractPrice(html, $, retailerName);
 
       if (price) {
-        // Salvăm în price_history (folosește product_url_id)
         const { error: insertError } = await supabase
           .from('price_history')
           .insert({
@@ -170,8 +177,7 @@ async function scrape() {
         failed++;
       }
 
-      // Delay între request-uri
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, delay));
 
     } catch (e) {
       if (e.name === 'AbortError') {
@@ -183,8 +189,94 @@ async function scrape() {
     }
   }
 
+  return { retailerName, success, failed, total: urls.length };
+}
+
+// Rulează funcții cu limită de concurrency
+async function runWithConcurrency(tasks, limit) {
+  const results = [];
+  const running = new Set();
+
+  for (const task of tasks) {
+    const promise = task().then(result => {
+      running.delete(promise);
+      return result;
+    });
+    running.add(promise);
+    results.push(promise);
+
+    if (running.size >= limit) {
+      await Promise.race(running);
+    }
+  }
+
+  return Promise.all(results);
+}
+
+async function scrape() {
+  const startTime = Date.now();
+  console.log('🚀 Pornesc scraping-ul (paralel)...\n');
+
+  // Luăm URL-urile active
+  const { data: urls, error } = await supabase
+    .from('product_urls')
+    .select(`
+      id,
+      url,
+      product_id,
+      retailer_id,
+      products(name, ean),
+      retailers(name)
+    `)
+    .eq('is_active', true);
+
+  if (error) {
+    console.error('Eroare:', error);
+    return;
+  }
+
+  // Grupăm per retailer
+  const groups = {};
+  for (const u of urls) {
+    const name = u.retailers?.name || 'Unknown';
+    if (!groups[name]) groups[name] = [];
+    groups[name].push(u);
+  }
+
+  const retailerNames = Object.keys(groups);
+  const drmaxCount = groups['Dr Max']?.length || 0;
+
+  console.log('URL-uri de procesat:', urls.length);
+  console.log('Retaileri:', retailerNames.length, '(paralel:', CONCURRENCY, 'simultan)');
+  if (drmaxCount > 0) {
+    console.log('Dr Max:', drmaxCount, SCRAPER_API_KEY ? '(via proxy)' : '(⚠️  SCRAPER_API_KEY lipsește)');
+  }
+  console.log('');
+
+  // Progres shared între toate thread-urile
+  const progress = { done: 0, total: urls.length };
+
+  // Creăm task-uri per retailer
+  const tasks = retailerNames.map(name => () => scrapeRetailer(name, groups[name], progress));
+
+  // Rulăm cu concurrency limit
+  const results = await runWithConcurrency(tasks, CONCURRENCY);
+
+  // Sumar
+  const totalSuccess = results.reduce((s, r) => s + r.success, 0);
+  const totalFailed = results.reduce((s, r) => s + r.failed, 0);
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+
   console.log('\n' + '='.repeat(60));
-  console.log('DONE:', success, 'reușite,', failed, 'eșuate');
+  console.log('DONE în ' + elapsed + 's: ' + totalSuccess + ' reușite, ' + totalFailed + ' eșuate');
+  console.log('');
+
+  // Detalii per retailer
+  for (const r of results.sort((a, b) => b.success - a.success)) {
+    const status = r.failed === 0 ? '✅' : '⚠️';
+    console.log('  ' + status + ' ' + r.retailerName.padEnd(20) + r.success + '/' + r.total);
+  }
+
   console.log('\nPoți vedea datele pe: https://pharma-tracker-sandy.vercel.app/');
 }
 
