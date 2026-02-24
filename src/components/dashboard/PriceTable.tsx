@@ -71,7 +71,7 @@ export function PriceTable({ data, retailers, isLoading }: PriceTableProps) {
             <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky left-0 bg-gray-800 z-20 min-w-[120px] border-r border-gray-700">
               EAN
             </th>
-            <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky left-[120px] bg-gray-800 z-20 min-w-[280px] border-r border-gray-700">
+            <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider sticky left-[120px] bg-gray-800 z-20 w-[280px] min-w-[280px] border-r border-gray-700">
               Produs
             </th>
             {retailers.map((retailer) => (
@@ -86,11 +86,11 @@ export function PriceTable({ data, retailers, isLoading }: PriceTableProps) {
         </thead>
         <tbody className="divide-y divide-gray-800">
           {dataWithMinMax.map((product) => (
-            <tr key={product.productId} className="group hover:bg-gray-800/50">
+            <tr key={product.productId} className="group">
               <td className="px-3 py-3 text-gray-500 text-xs font-mono sticky left-0 bg-gray-900 group-hover:bg-gray-800 z-10 border-r border-gray-700">
                 {product.ean || '-'}
               </td>
-              <td className="px-3 py-3 text-gray-200 font-medium sticky left-[120px] bg-gray-900 group-hover:bg-gray-800 z-10 min-w-[280px] whitespace-normal break-words border-r border-gray-700">
+              <td className="px-3 py-3 text-gray-200 font-medium sticky left-[120px] bg-gray-900 group-hover:bg-gray-800 z-10 w-[280px] min-w-[280px] whitespace-normal break-words border-r border-gray-700">
                 {product.productName}
               </td>
               {retailers.map((retailer) => {
@@ -98,7 +98,7 @@ export function PriceTable({ data, retailers, isLoading }: PriceTableProps) {
 
                 if (!priceData) {
                   return (
-                    <td key={retailer.id} className="px-4 py-3 text-center text-gray-600">
+                    <td key={retailer.id} className="px-4 py-3 text-center text-gray-600 group-hover:bg-gray-800/50">
                       <Minus className="w-4 h-4 mx-auto" />
                     </td>
                   )
@@ -106,7 +106,7 @@ export function PriceTable({ data, retailers, isLoading }: PriceTableProps) {
 
                 if (!priceData.isInStock) {
                   return (
-                    <td key={retailer.id} className="px-3 py-3 text-center">
+                    <td key={retailer.id} className="px-3 py-3 text-center group-hover:bg-gray-800/50">
                       <div className="flex flex-col items-center gap-1">
                         <Badge variant="error">OOS</Badge>
                         {priceData.price !== null && (
@@ -121,14 +121,14 @@ export function PriceTable({ data, retailers, isLoading }: PriceTableProps) {
 
                 if (priceData.price === null) {
                   return (
-                    <td key={retailer.id} className="px-3 py-3 text-center text-gray-600">
+                    <td key={retailer.id} className="px-3 py-3 text-center text-gray-600 group-hover:bg-gray-800/50">
                       <span className="text-xs">N/A</span>
                     </td>
                   )
                 }
 
                 return (
-                  <td key={retailer.id} className="px-3 py-3 text-center">
+                  <td key={retailer.id} className="px-3 py-3 text-center group-hover:bg-gray-800/50">
                     <div className="flex flex-col items-center gap-1">
                       <span
                         className={`font-semibold ${

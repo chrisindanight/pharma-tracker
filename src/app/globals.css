@@ -29,7 +29,3 @@ body {
   background: #6b7280;
 }
 
-/* Table sticky columns background fix */
-.sticky {
-  background-color: inherit;
-}
