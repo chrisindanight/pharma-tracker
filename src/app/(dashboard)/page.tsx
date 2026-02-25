@@ -69,11 +69,18 @@ export default function DashboardPage() {
       const activeRetailers = retailersData.filter((r: Retailer & { is_active: boolean }) => r.is_active)
       setRetailers(sortRetailers(activeRetailers))
 
-      // Fetch prices
+      // Fetch prices — dacă e interval specific, trimitem date; altfel ultimele prețuri
       const pricesRes = await fetch(
         `/api/prices?startDate=${dateRange.start.toISOString()}&endDate=${dateRange.end.toISOString()}`
       )
-      const pricesData = await pricesRes.json()
+      let pricesData = await pricesRes.json()
+
+      // Dacă nu avem date pentru intervalul selectat, fallback pe ultimele prețuri
+      if (Array.isArray(pricesData) && pricesData.length === 0) {
+        const latestRes = await fetch('/api/prices')
+        pricesData = await latestRes.json()
+      }
+
       setPriceData(Array.isArray(pricesData) ? pricesData : [])
     } catch (error) {
       console.error('Error fetching data:', error)
