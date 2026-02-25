@@ -2,24 +2,43 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
 
+// Ordinea retailerilor — identică cu dashboard-ul
+const retailerOrder = [
+  'Dr Max',
+  'Farmacia Tei',
+  'HelpNet',
+  'Spring Farma',
+  'Remedium Farm',
+  'Biscuit Pharma',
+  'Farmaciile DAV',
+  'DucFarm',
+  'Al Shefa Farm',
+  'PFarma',
+]
+
 // GET - Export Excel
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const startDate = searchParams.get('startDate')
   const endDate = searchParams.get('endDate')
 
-  // Obținem retailerii
+  // Obținem retailerii și sortăm ca pe dashboard
   const { data: retailers } = await supabaseAdmin
     .from('retailers')
     .select('id, name')
     .eq('is_active', true)
-    .order('name')
 
   if (!retailers) {
     return NextResponse.json({ error: 'No retailers found' }, { status: 404 })
   }
 
-  // Obținem prețurile
+  const sortedRetailers = retailers.sort((a, b) => {
+    const indexA = retailerOrder.indexOf(a.name)
+    const indexB = retailerOrder.indexOf(b.name)
+    return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB)
+  })
+
+  // Obținem prețurile (cu sort_order pentru sortare produse)
   let pricesQuery = supabaseAdmin
     .from('price_history')
     .select(`
@@ -35,7 +54,8 @@ export async function GET(request: NextRequest) {
           id,
           name,
           ean,
-          is_active
+          is_active,
+          sort_order
         ),
         retailers!inner (
           id,
@@ -61,12 +81,13 @@ export async function GET(request: NextRequest) {
   const aggregated = new Map<string, {
     ean: string | null
     productName: string
+    sortOrder: number
     prices: Map<string, { price: number | null; promo: number | null; inStock: boolean }>
   }>()
 
   prices.forEach((item: Record<string, unknown>) => {
     const productUrls = item.product_urls as {
-      products: { id: string; name: string; ean: string | null }
+      products: { id: string; name: string; ean: string | null; sort_order: number | null }
       retailers: { id: string; name: string }
     }
 
@@ -76,6 +97,7 @@ export async function GET(request: NextRequest) {
       aggregated.set(productId, {
         ean: productUrls.products.ean,
         productName: productUrls.products.name,
+        sortOrder: productUrls.products.sort_order ?? 9999,
         prices: new Map(),
       })
     }
@@ -92,6 +114,9 @@ export async function GET(request: NextRequest) {
       })
     }
   })
+
+  // Sortăm produsele după sort_order (ordinea din Excel/dashboard)
+  const sortedProducts = Array.from(aggregated.values()).sort((a, b) => a.sortOrder - b.sortOrder)
 
   // Creăm Excel
   const workbook = XLSX.utils.book_new()
@@ -112,13 +137,13 @@ export async function GET(request: NextRequest) {
   pricesData.push(headerRow)
   pricesData.push({}) // Rând gol
 
-  aggregated.forEach((product) => {
+  sortedProducts.forEach((product) => {
     const row: Record<string, string | number | null> = {
       EAN: product.ean,
       Produs: product.productName,
     }
 
-    retailers.forEach((retailer) => {
+    sortedRetailers.forEach((retailer) => {
       const priceData = product.prices.get(retailer.name)
       if (priceData) {
         if (!priceData.inStock) {
@@ -139,13 +164,13 @@ export async function GET(request: NextRequest) {
 
   // Sheet 2: Promoții
   const promoData: Record<string, string | number | null>[] = []
-  aggregated.forEach((product) => {
+  sortedProducts.forEach((product) => {
     const row: Record<string, string | number | null> = {
       EAN: product.ean,
       Produs: product.productName,
     }
 
-    retailers.forEach((retailer) => {
+    sortedRetailers.forEach((retailer) => {
       const priceData = product.prices.get(retailer.name)
       if (priceData && priceData.promo) {
         row[retailer.name] = `-${priceData.promo}%`
