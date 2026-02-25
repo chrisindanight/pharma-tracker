@@ -1,15 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard,
   Package,
   Store,
   History,
   AlertCircle,
-  Settings,
   Pill,
+  LogOut,
 } from 'lucide-react'
 
 const navigation = [
@@ -22,6 +22,13 @@ const navigation = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+    router.refresh()
+  }
 
   return (
     <div className="flex flex-col w-64 bg-gray-900 border-r border-gray-800 min-h-screen">
@@ -57,12 +64,15 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
+      {/* Footer - Logout */}
       <div className="px-4 py-4 border-t border-gray-800">
-        <div className="px-3 py-2 text-xs text-gray-500">
-          <p>Ultima actualizare:</p>
-          <p className="text-gray-400">Se va afișa după primul scrape</p>
-        </div>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <LogOut className="w-5 h-5" />
+          Deconectare
+        </button>
       </div>
     </div>
   )
